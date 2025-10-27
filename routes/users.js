@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import axios from 'axios';
 import User from '../models/User.js';
 import Assignment from '../models/Assignment.js';
 import { uploadProfile } from '../middleware/profileUploadMiddleware.js';
@@ -161,8 +162,18 @@ router.post('/register', async (req, res) => {
 // Mejoramos la ruta de login con más validaciones y logs
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    console.log('Intento de login con email:', email);
+    const { email, password, captchaToken } = req.body;
+    if (!captchaToken) {
+      return res.status(400).json({ success: false, message: 'Captcha requerido' });
+    }
+
+    // Validar el captcha con Google
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY || 'TU_SECRET_KEY_AQUI';
+    const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
+    const captchaRes = await axios.post(verifyUrl);
+    if (!captchaRes.data.success) {
+      return res.status(403).json({ success: false, message: 'Captcha inválido' });
+    }
 
     // Buscar usuario
     const user = await User.findOne({ email: email.toLowerCase() });
