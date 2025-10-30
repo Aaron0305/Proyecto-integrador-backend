@@ -2,9 +2,9 @@ import { v2 as cloudinary } from 'cloudinary';
 
 // Configuración básica de Cloudinary
 cloudinary.config({
-    cloud_name: 'dzrstenqb',
-    api_key: '398629673296979',
-    api_secret: 'Nq6PFaae1I72AmaZzCUbE2dPdjo',
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
     secure: true,
     timeout: 300000, // 5 minutos de timeout
     upload_timeout: 300000 // 5 minutos de timeout para subidas

@@ -19,10 +19,10 @@ import { startScheduledAssignmentsCron } from './services/scheduledAssignmentsSe
 dotenv.config();
 
 const app = express();
-const httpServer = createServer(app);
 
-// Inicializar servicio de notificaciones
-notificationService.initialize(httpServer);
+// We'll manage DB connection and server startup depending on environment:
+// - In serverless (Vercel) we export a handler and DO NOT call listen()
+// - Locally (node server.js) we start an http server and socket/cron services
 
 // Middleware
 app.use(cors({
@@ -100,23 +100,59 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
-// Conectar a la base de datos
-connectDB().then(() => {
+// Ensure DB connection happens once per cold start
+let _dbConnected = false;
+const ensureDbConnected = async () => {
+    if (_dbConnected) return;
+    await connectDB();
+    _dbConnected = true;
+};
+
+// Function to start long-running pieces when running locally (not serverless)
+const startLongRunningServices = async () => {
+    // Only start HTTP server / socket / cron when running as a standalone server
+    const isServerless = !!process.env.VERCEL || process.env.NODE_ENV === 'production' && !process.env.PORT;
+    if (isServerless) {
+        console.log('ℹ️ Running in serverless mode — will not start http server, sockets or cron jobs');
+        return;
+    }
+
+    // Start HTTP server and notification service
+    const httpServer = createServer(app);
+    notificationService.initialize(httpServer);
+
     httpServer.listen(PORT, () => {
         console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
         console.log('✅ Configurado para usar Cloudinary en lugar de almacenamiento local');
-        
-        // Iniciar el servicio de asignaciones programadas
-        setTimeout(() => {
-            try {
-                startScheduledAssignmentsCron();
-                console.log('✅ Servicio de asignaciones programadas iniciado');
-            } catch (error) {
-                console.error('⚠️ Error al iniciar asignaciones programadas:', error.message);
-            }
-        }, 5000); // Esperar 5 segundos después de que el servidor esté listo
     });
-}).catch(err => {
-    console.error('Error al conectar a la base de datos:', err);
-    process.exit(1);
-});
+
+    // Start scheduled assignments cron after a short delay
+    setTimeout(() => {
+        try {
+            startScheduledAssignmentsCron();
+            console.log('✅ Servicio de asignaciones programadas iniciado');
+        } catch (error) {
+            console.error('⚠️ Error al iniciar asignaciones programadas:', error.message);
+        }
+    }, 5000);
+};
+
+// Exported handler for serverless platforms like Vercel
+export default async function handler(req, res) {
+    try {
+        await ensureDbConnected();
+        // In serverless mode we simply let Express handle the request
+        return app(req, res);
+    } catch (error) {
+        console.error('Error handling request in serverless handler:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+}
+
+// If this file is run directly (node server.js), connect DB and start services
+if (process.argv[1] && process.argv[1].endsWith('server.js')) {
+    ensureDbConnected().then(() => startLongRunningServices()).catch(err => {
+        console.error('Error al conectar a la base de datos al iniciar localmente:', err);
+        process.exit(1);
+    });
+}
