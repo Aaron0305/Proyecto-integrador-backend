@@ -106,9 +106,16 @@ router.post('/login', async (req, res) => {
     // Verificar reCAPTCHA
     const recaptchaResult = await verifyRecaptcha(captchaToken);
     if (!recaptchaResult.success) {
+      // Incluir detalle para depuración local (no exponer en producción)
+      const detail = recaptchaResult.error
+        ? `${recaptchaResult.error}${
+            typeof recaptchaResult.score === 'number' ? ` (score: ${recaptchaResult.score})` : ''
+          }`
+        : 'Motivo desconocido';
       return res.status(400).json({
         success: false,
-        message: 'Verificación de seguridad fallida. Por favor, intenta de nuevo.'
+        message: 'Verificación de seguridad fallida. Por favor, intenta de nuevo.',
+        detail
       });
     }
 
