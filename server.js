@@ -29,7 +29,7 @@ app.use(cors({
     origin: [
         'http://localhost:5173',
         'http://localhost:5174',
-        'https://proyecto-integrador-frontend-mllt6rkuu.vercel.app',
+        'https://proyecto-integrador-frontend-nu.vercel.app',
         'https://proyecto-integrador-backend-six.vercel.app'
     ],
     credentials: true
