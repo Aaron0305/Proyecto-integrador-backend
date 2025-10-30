@@ -97,9 +97,20 @@ router.post('/register', uploadProfile, async (req, res) => {  try {
 });
 
 // Ruta de login sin rate limiting
+import { verifyRecaptcha } from '../utils/recaptcha.js';
+
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, captchaToken } = req.body;
+
+    // Verificar reCAPTCHA
+    const recaptchaResult = await verifyRecaptcha(captchaToken);
+    if (!recaptchaResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verificación de seguridad fallida. Por favor, intenta de nuevo.'
+      });
+    }
 
     const user = await User.findOne({ email }).populate('carrera', 'nombre');
     if (!user) {
