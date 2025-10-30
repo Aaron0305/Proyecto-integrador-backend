@@ -29,10 +29,8 @@ app.use(cors({
     origin: [
         'http://localhost:5173',
         'http://localhost:5174',
-        'https://frontend-opal-omega-97.vercel.app',
-        'https://frontend-au8plvs1h-aaronns-projects-f412b7c5.vercel.app',
-        'https://frontend-aaronns-projects-f412b7c5.vercel.app',
-        'https://frontend-git-main-aaronns-projects-f412b7c5.vercel.app'
+        'https://proyecto-integrador-frontend-mllt6rkuu.vercel.app',
+        'https://proyecto-integrador-backend-six.vercel.app'
     ],
     credentials: true
 }));
