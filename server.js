@@ -1,6 +1,7 @@
+// Load environment variables as early as possible
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { createServer } from 'http';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
@@ -16,7 +17,6 @@ import errorHandler from './middleware/errorHandler.js';
 import notificationService from './services/notificationService.js';
 import { startScheduledAssignmentsCron } from './services/scheduledAssignmentsService.js';
 
-dotenv.config();
 
 const app = express();
 
