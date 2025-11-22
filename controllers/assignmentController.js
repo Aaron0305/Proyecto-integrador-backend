@@ -107,7 +107,7 @@ export const createAssignment = async (req, res) => {
                         description: savedAssignment.description,
                         dueDate: savedAssignment.dueDate,
                         closeDate: savedAssignment.closeDate,
-                        assignmentUrl: `${process.env.FRONTEND_URL || 'https://frontend-opal-omega-97.vercel.app'}/assignment/${savedAssignment._id}`
+                        assignmentUrl: `${process.env.FRONTEND_URL || 'https://proyecto-integrador-frontend-nu.vercel.app'}/assignment/${savedAssignment._id}`
                     });
 
                     // Notificación web (si el servicio está disponible)
@@ -1665,7 +1665,7 @@ export const publishScheduledAssignments = async () => {
                                 description: assignment.description,
                                 dueDate: assignment.dueDate.toLocaleDateString('es-ES'),
                                 closeDate: assignment.closeDate.toLocaleDateString('es-ES'),
-                                assignmentUrl: `${process.env.FRONTEND_URL || 'https://frontend-opal-omega-97.vercel.app'}/assignment/${assignment._id}`
+                                assignmentUrl: `${process.env.FRONTEND_URL || 'https://proyecto-integrador-frontend-nu.vercel.app'}/assignment/${assignment._id}`
                             });
 
                             // Enviar notificación web
