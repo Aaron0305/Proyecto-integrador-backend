@@ -121,7 +121,7 @@ router.post('/register/begin', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al iniciar el registro de huella digital',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message // Mostrar error siempre para debugging
     });
   }
 });
@@ -256,7 +256,7 @@ router.post('/register/complete', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al completar el registro de huella digital',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message // Mostrar error siempre para debugging
     });
   }
 });
