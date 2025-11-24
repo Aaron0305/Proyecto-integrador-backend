@@ -69,7 +69,7 @@ router.post('/register/begin', async (req, res) => {
     const options = await generateRegistrationOptions({
       rpName: rp.name,
       rpID: rp.id,
-      userID: isoUint8Array.fromUTF8String(userId),
+      userID: Buffer.from(userId),
       userName: normalizedEmail,
       userDisplayName: displayName,
       timeout: 60000,
@@ -102,7 +102,7 @@ router.post('/register/begin', async (req, res) => {
       success: true,
       challenge: options.challenge,
       user: {
-        id: isoBase64URL.fromBuffer(isoUint8Array.fromUTF8String(userId)),
+        id: isoBase64URL.fromBuffer(Buffer.from(userId)),
         name: normalizedEmail,
         displayName: displayName,
       },
