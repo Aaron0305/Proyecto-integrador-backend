@@ -19,22 +19,45 @@ router.post('/register', uploadProfile, async (req, res) => {
       apellidoPaterno,
       apellidoMaterno,
       carrera,
-      role, // Agregamos el role a los campos que extraemos
+      role,
       semestre,
-      webauthnCredentialId // ID de la credencial WebAuthn registrada previamente
+      webauthnCredentialId
     } = req.body;
 
     // Guardar la URL de Cloudinary de la foto si se subió una
     const fotoPerfil = req.file ? req.file.cloudinaryUrl : null;
 
+    // Validaciones básicas
+    if (!email || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'El correo electrónico es requerido'
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'La contraseña debe tener al menos 6 caracteres'
+      });
+    }
+
+    if (!numeroControl || numeroControl.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El número de control es requerido'
+      });
+    }
+
+    // Verificar que el correo no esté registrado
     const userExists = await User.findOne({
-      $or: [{ email }, { numeroControl }]
+      $or: [{ email: email.toLowerCase() }, { numeroControl }]
     });
 
     if (userExists) {
       return res.status(400).json({
         success: false,
-        message: userExists.email === email
+        message: userExists.email === email.toLowerCase()
           ? 'Este correo electrónico ya está registrado'
           : 'Este número de control ya está registrado'
       });
@@ -48,34 +71,46 @@ router.post('/register', uploadProfile, async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Verificar si existe una credencial WebAuthn para este email
-    let webauthnCredential = null;
-    if (webauthnCredentialId) {
-      webauthnCredential = await WebAuthnCredential.findById(webauthnCredentialId);
-      if (!webauthnCredential) {
-        return res.status(400).json({
-          success: false,
-          message: 'La credencial de huella digital no fue encontrada. Por favor, registra tu huella nuevamente.'
-        });
-      }
-      // Verificar que la credencial pertenezca al email del usuario
-      if (webauthnCredential.email.toLowerCase() !== email.toLowerCase()) {
-        return res.status(400).json({
-          success: false,
-          message: 'La credencial de huella digital no corresponde a este correo electrónico.'
-        });
-      }
-    } else {
-      // Si no se proporciona webauthnCredentialId, verificar si hay una credencial por email
-      webauthnCredential = await WebAuthnCredential.findOne({
-        email: email.toLowerCase()
+    // Validar WebAuthn: OBLIGATORIO
+    if (!webauthnCredentialId || webauthnCredentialId.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'La credencial de huella digital es obligatoria. Por favor, registra tu huella digital.'
       });
     }
 
+    // Buscar la credencial WebAuthn
+    let webauthnCredential;
+    try {
+      webauthnCredential = await WebAuthnCredential.findById(webauthnCredentialId);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de credencial inválido'
+      });
+    }
+
+    if (!webauthnCredential) {
+      return res.status(400).json({
+        success: false,
+        message: 'La credencial de huella digital no fue encontrada. Por favor, registra tu huella nuevamente.'
+      });
+    }
+
+    // Verificar que la credencial pertenezca al email del usuario
+    if (webauthnCredential.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: 'La credencial de huella digital no corresponde a este correo electrónico. Por favor, registra tu huella con el mismo correo que usarás para la cuenta.'
+      });
+    }
+
+    // Hashear contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Crear usuario
     const user = new User({
-      email,
+      email: email.toLowerCase(),
       password: hashedPassword,
       numeroControl,
       nombre,
@@ -84,21 +119,23 @@ router.post('/register', uploadProfile, async (req, res) => {
       carrera,
       semestre,
       fotoPerfil,
-      role: role || 'docente', // Asegurarnos de incluir el role
-      webauthnCredentialId: webauthnCredential ? webauthnCredential._id : null
+      role: role || 'docente',
+      webauthnCredentialId: webauthnCredential._id
     });
 
     const savedUser = await user.save();
 
-    // Si hay una credencial WebAuthn sin usuario asociado, actualizarla
-    if (webauthnCredential && !webauthnCredential.user) {
+    // Actualizar la credencial para asociarla con el usuario
+    if (!webauthnCredential.user) {
       webauthnCredential.user = savedUser._id;
       await webauthnCredential.save();
     }
+
+    // Generar token JWT
     const token = jwt.sign(
       { id: savedUser._id },
       process.env.JWT_SECRET || 'tu_secreto_muy_seguro_123',
-      { expiresIn: '7d' } // Aumentado a 7 días para debugging
+      { expiresIn: '7d' }
     );
 
     const userResponse = {
@@ -126,7 +163,7 @@ router.post('/register', uploadProfile, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al registrar usuario',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
