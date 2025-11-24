@@ -226,6 +226,33 @@ router.post('/register/complete', async (req, res) => {
       });
     }
 
+    // Logs de diagnóstico detallado (solo en desarrollo)
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        console.log('[webauthn] /register/complete -> credential received types:', {
+          idType: typeof credential.id,
+          rawIdType: typeof credential.rawId,
+          clientDataType: typeof credential.response?.clientDataJSON,
+          attestationType: typeof credential.response?.attestationObject,
+        });
+
+        const safeId = typeof credential.id === 'string' ? credential.id.substring(0, 120) : '[non-string]';
+        const safeRawId = typeof credential.rawId === 'string' ? credential.rawId.substring(0, 120) : (credential.rawId && credential.rawId.byteLength ? `ArrayBuffer(${credential.rawId.byteLength})` : String(credential.rawId));
+        console.log('[webauthn] credential.id (trunc):', safeId);
+        console.log('[webauthn] credential.rawId (trunc/type):', safeRawId);
+
+        // Señalar presencia de caracteres problemáticos en id/rawId
+        if (typeof credential.id === 'string') {
+          console.log('[webauthn] credential.id contains + or / or =:', /[+/=]/.test(credential.id));
+        }
+        if (typeof credential.rawId === 'string') {
+          console.log('[webauthn] credential.rawId contains + or / or =:', /[+/=]/.test(credential.rawId));
+        }
+      } catch (logErr) {
+        console.error('[webauthn] error logging credential debug info:', logErr);
+      }
+    }
+
     if (Date.now() > challengeData.expiresAt) {
       challenges.delete(challengeKey);
       return res.status(400).json({
