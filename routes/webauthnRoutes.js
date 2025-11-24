@@ -25,7 +25,6 @@ const getRPConfig = (req) => {
 const challenges = new Map();
 
 // POST /api/webauthn/register/begin
-// Inicia el proceso de registro de huella digital
 router.post('/register/begin', async (req, res) => {
   try {
     const { email, username } = req.body;
@@ -37,10 +36,8 @@ router.post('/register/begin', async (req, res) => {
       });
     }
 
-    // Normalizar email
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Validar formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({
@@ -49,19 +46,15 @@ router.post('/register/begin', async (req, res) => {
       });
     }
 
-    // Verificar si el usuario ya existe
     let user = await User.findOne({ email: normalizedEmail });
 
-    // Si el usuario no existe, creamos un ID temporal basado en el email
     let userId;
     if (user) {
       userId = user._id.toString();
     } else {
-      // Crear un ID temporal basado en el email (será usado solo para WebAuthn)
       userId = Buffer.from(normalizedEmail).toString('base64url');
     }
 
-    // Verificar si ya tiene una credencial registrada
     const existingCredential = await WebAuthnCredential.findOne({ email: normalizedEmail });
     if (existingCredential && user) {
       return res.status(400).json({
@@ -70,7 +63,6 @@ router.post('/register/begin', async (req, res) => {
       });
     }
 
-    // Generar opciones de registro
     const rp = getRPConfig(req);
     const displayName = username || normalizedEmail;
 
@@ -79,7 +71,7 @@ router.post('/register/begin', async (req, res) => {
       options = await generateRegistrationOptions({
         rpName: rp.name,
         rpID: rp.id,
-        userID: Buffer.from(userId),
+        userID: isoUint8Array.fromUTF8String(normalizedEmail),
         userName: normalizedEmail,
         userDisplayName: displayName,
         timeout: 60000,
@@ -93,7 +85,7 @@ router.post('/register/begin', async (req, res) => {
           userVerification: 'required',
           requireResidentKey: false,
         },
-        supportedAlgorithmIDs: [-7, -257], // ES256, RS256
+        supportedAlgorithmIDs: [-7, -257],
       });
     } catch (optionsError) {
       console.error('Error generando opciones de registro:', optionsError);
@@ -104,23 +96,21 @@ router.post('/register/begin', async (req, res) => {
       });
     }
 
-    // Guardar el challenge temporalmente (expira en 5 minutos)
     const challengeKey = `${normalizedEmail}_register`;
     challenges.set(challengeKey, {
       challenge: options.challenge,
       email: normalizedEmail,
       userId: userId,
-      expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutos
+      expiresAt: Date.now() + 5 * 60 * 1000
     });
 
-    // Limpiar challenges expirados
     cleanupExpiredChallenges();
 
     res.json({
       success: true,
       challenge: options.challenge,
       user: {
-        id: isoBase64URL.fromBuffer(Buffer.from(userId)),
+        id: isoBase64URL.fromBuffer(isoUint8Array.fromUTF8String(normalizedEmail)),
         name: normalizedEmail,
         displayName: displayName,
       },
@@ -145,7 +135,6 @@ router.post('/register/begin', async (req, res) => {
 });
 
 // POST /api/webauthn/register/complete
-// Completa el proceso de registro y valida la credencial
 router.post('/register/complete', async (req, res) => {
   try {
     const { email, credential } = req.body;
@@ -164,11 +153,10 @@ router.post('/register/complete', async (req, res) => {
       });
     }
 
-    // Validar estructura de la credencial
     if (!credential.id || !credential.rawId || !credential.response) {
       return res.status(400).json({
         success: false,
-        message: 'La credencial está incompleta. Verifica que hayas capturado la huella correctamente.'
+        message: 'La credencial está incompleta'
       });
     }
 
@@ -186,20 +174,18 @@ router.post('/register/complete', async (req, res) => {
     if (!challengeData) {
       return res.status(400).json({
         success: false,
-        message: 'No se encontró un registro de registro activo. Por favor, intenta de nuevo desde el paso de huella digital.'
+        message: 'No se encontró un registro de registro activo. Por favor, intenta de nuevo.'
       });
     }
 
-    // Verificar que el challenge no haya expirado
     if (Date.now() > challengeData.expiresAt) {
       challenges.delete(challengeKey);
       return res.status(400).json({
         success: false,
-        message: 'El tiempo para registrar la huella ha expirado (máximo 5 minutos). Por favor, intenta de nuevo.'
+        message: 'El tiempo para registrar la huella ha expirado (máximo 5 minutos).'
       });
     }
 
-    // Verificar si ya existe una credencial con este ID
     const existingCredential = await WebAuthnCredential.findOne({
       credentialID: credential.id
     });
@@ -208,22 +194,21 @@ router.post('/register/complete', async (req, res) => {
       challenges.delete(challengeKey);
       return res.status(400).json({
         success: false,
-        message: 'Esta huella digital ya está registrada. Si es tuya, inicia sesión con ella.'
+        message: 'Esta huella digital ya está registrada.'
       });
     }
 
     const rp = getRPConfig(req);
 
-    // Convertir rawId a Buffer si viene como string (base64url)
+    // Convertir rawId a Buffer
     let rawIdBuffer;
     try {
       if (typeof credential.rawId === 'string') {
-        // Convertir de base64url a Buffer
         rawIdBuffer = isoBase64URL.toBuffer(credential.rawId);
-      } else if (credential.rawId instanceof Buffer) {
-        rawIdBuffer = credential.rawId;
+      } else if (credential.rawId instanceof Uint8Array || credential.rawId instanceof ArrayBuffer) {
+        rawIdBuffer = Buffer.from(credential.rawId);
       } else {
-        throw new Error('rawId inválido: debe ser string o Buffer');
+        throw new Error('rawId tiene formato inválido');
       }
     } catch (rawIdError) {
       console.error('Error procesando rawId:', rawIdError);
@@ -235,15 +220,15 @@ router.post('/register/complete', async (req, res) => {
       });
     }
 
-    // Convertir clientDataJSON a Buffer si viene como string (base64url)
+    // Convertir clientDataJSON a Buffer
     let clientDataJSONBuffer;
     try {
       if (typeof credential.response.clientDataJSON === 'string') {
         clientDataJSONBuffer = isoBase64URL.toBuffer(credential.response.clientDataJSON);
-      } else if (credential.response.clientDataJSON instanceof Buffer) {
-        clientDataJSONBuffer = credential.response.clientDataJSON;
+      } else if (credential.response.clientDataJSON instanceof Uint8Array || credential.response.clientDataJSON instanceof ArrayBuffer) {
+        clientDataJSONBuffer = Buffer.from(credential.response.clientDataJSON);
       } else {
-        throw new Error('clientDataJSON inválido');
+        throw new Error('clientDataJSON tiene formato inválido');
       }
     } catch (clientDataError) {
       console.error('Error procesando clientDataJSON:', clientDataError);
@@ -255,15 +240,15 @@ router.post('/register/complete', async (req, res) => {
       });
     }
 
-    // Convertir attestationObject a Buffer si viene como string (base64url)
+    // Convertir attestationObject a Buffer
     let attestationObjectBuffer;
     try {
       if (typeof credential.response.attestationObject === 'string') {
         attestationObjectBuffer = isoBase64URL.toBuffer(credential.response.attestationObject);
-      } else if (credential.response.attestationObject instanceof Buffer) {
-        attestationObjectBuffer = credential.response.attestationObject;
+      } else if (credential.response.attestationObject instanceof Uint8Array || credential.response.attestationObject instanceof ArrayBuffer) {
+        attestationObjectBuffer = Buffer.from(credential.response.attestationObject);
       } else {
-        throw new Error('attestationObject inválido');
+        throw new Error('attestationObject tiene formato inválido');
       }
     } catch (attestationError) {
       console.error('Error procesando attestationObject:', attestationError);
@@ -275,7 +260,6 @@ router.post('/register/complete', async (req, res) => {
       });
     }
 
-    // Verificar la respuesta de registro
     let verification;
     try {
       verification = await verifyRegistrationResponse({
@@ -297,14 +281,13 @@ router.post('/register/complete', async (req, res) => {
       console.error('Error al verificar la credencial:', verifyError);
       challenges.delete(challengeKey);
       
-      // Proporcionar mensajes de error más específicos
       let errorMessage = 'Error al verificar la huella digital';
       if (verifyError.message.includes('challenge')) {
-        errorMessage = 'El desafío de verificación no coincide. Por favor, intenta de nuevo.';
+        errorMessage = 'El desafío de verificación no coincide.';
       } else if (verifyError.message.includes('origin')) {
-        errorMessage = 'El origen de la solicitud no es válido. Asegúrate de estar en el sitio correcto.';
+        errorMessage = 'El origen de la solicitud no es válido.';
       } else if (verifyError.message.includes('RP')) {
-        errorMessage = 'El identificador de la plataforma no coincide. Por favor, intenta de nuevo.';
+        errorMessage = 'El identificador de la plataforma no coincide.';
       }
       
       return res.status(400).json({
@@ -318,7 +301,7 @@ router.post('/register/complete', async (req, res) => {
       challenges.delete(challengeKey);
       return res.status(400).json({
         success: false,
-        message: 'La verificación de la huella digital falló. La huella no fue verificada correctamente.'
+        message: 'La verificación de la huella digital falló.'
       });
     }
 
@@ -326,17 +309,14 @@ router.post('/register/complete', async (req, res) => {
       challenges.delete(challengeKey);
       return res.status(400).json({
         success: false,
-        message: 'No se pudo obtener la información de registro de la huella'
+        message: 'No se pudo obtener la información de registro'
       });
     }
 
     const { registrationInfo } = verification;
 
-    // Buscar el usuario por email (podría existir o no)
     let user = await User.findOne({ email: normalizedEmail });
 
-    // Crear y guardar la credencial
-    // El campo 'user' ahora puede ser null, se completará cuando el usuario se registre
     const newCredential = new WebAuthnCredential({
       user: user ? user._id : null,
       email: normalizedEmail,
@@ -350,13 +330,11 @@ router.post('/register/complete', async (req, res) => {
 
     const savedCredential = await newCredential.save();
 
-    // Si el usuario ya existe, actualizar su referencia a la credencial
     if (user) {
       user.webauthnCredentialId = savedCredential._id;
       await user.save();
     }
 
-    // Limpiar el challenge usado
     challenges.delete(challengeKey);
 
     res.json({
@@ -376,7 +354,6 @@ router.post('/register/complete', async (req, res) => {
   }
 });
 
-// Función para limpiar challenges expirados
 function cleanupExpiredChallenges() {
   const now = Date.now();
   for (const [key, data] of challenges.entries()) {
@@ -386,8 +363,6 @@ function cleanupExpiredChallenges() {
   }
 }
 
-// Ejecutar limpieza cada 10 minutos
 setInterval(cleanupExpiredChallenges, 10 * 60 * 1000);
 
 export default router;
-
