@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse
@@ -57,6 +58,15 @@ const normalizeBase64Url = (base64String) => {
     .replace(/\+/g, '-')      // + -> -
     .replace(/\//g, '_')      // / -> _
     .replace(/=/g, '');       // remover padding =
+};
+
+// Función para generar un credentialId único en base64url (similar a base64Encode de Scala)
+// Esto evita problemas de formato dependiendo del navegador
+const generateBase64CredentialId = () => {
+  // Generar 32 bytes aleatorios (256 bits de entropía)
+  const randomBytes = crypto.randomBytes(32);
+  // Convertir a base64url
+  return isoBase64URL.fromBuffer(randomBytes);
 };
 
 // POST /api/webauthn/register/begin
@@ -392,10 +402,15 @@ router.post('/register/complete', async (req, res) => {
 
     let user = await User.findOne({ email: normalizedEmail });
 
+    // Generar un credentialId único en base64url en el backend
+    // (similar a base64Encode de Scala/Lift)
+    // Esto evita problemas de formato dependiendo del navegador
+    const generatedCredentialId = generateBase64CredentialId();
+
     const newCredential = new WebAuthnCredential({
       user: user ? user._id : null,
       email: normalizedEmail,
-      credentialID: credential.id,
+      credentialID: generatedCredentialId,  // ✅ Usar ID generado en backend (base64url)
       credentialPublicKey: Buffer.from(registrationInfo.credentialPublicKey),
       counter: registrationInfo.counter,
       deviceType: registrationInfo.authenticatorAttachment || 'platform',
@@ -412,11 +427,15 @@ router.post('/register/complete', async (req, res) => {
 
     challenges.delete(challengeKey);
 
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[webauthn] Huella registrada exitosamente. credentialId generado:', generatedCredentialId.substring(0, 40) + '...');
+    }
+
     res.json({
       success: true,
       message: 'Huella digital registrada exitosamente',
       credentialId: savedCredential._id.toString(),
-      credentialID: savedCredential.credentialID,
+      credentialID: generatedCredentialId,  // ✅ Retornar el ID generado
     });
 
   } catch (error) {
