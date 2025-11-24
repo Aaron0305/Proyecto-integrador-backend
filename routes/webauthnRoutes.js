@@ -44,6 +44,21 @@ const getRPConfig = (req) => {
 // Almacenamiento temporal de challenges (en producción usar Redis)
 const challenges = new Map();
 
+// Función para normalizar base64 a base64url
+// Acepta: base64 normal (con +, /, =) o base64url (con -, _, sin =)
+// Retorna: base64url válido
+const normalizeBase64Url = (base64String) => {
+  if (typeof base64String !== 'string') {
+    return base64String; // Si no es string, retornar como está
+  }
+  
+  // Reemplazar caracteres base64 normales por base64url
+  return base64String
+    .replace(/\+/g, '-')      // + -> -
+    .replace(/\//g, '_')      // / -> _
+    .replace(/=/g, '');       // remover padding =
+};
+
 // POST /api/webauthn/register/begin
 router.post('/register/begin', async (req, res) => {
   try {
@@ -229,9 +244,17 @@ router.post('/register/complete', async (req, res) => {
       // Si id no es string, convertir a base64url
       if (typeof credentialId !== 'string') {
         credentialId = isoBase64URL.fromBuffer(Buffer.from(credentialId));
+      } else {
+        // Si es string, normalizarlo a base64url (acepta base64 normal o base64url)
+        credentialId = normalizeBase64Url(credentialId);
       }
+      
       // Validar que sea base64url válido
       isoBase64URL.toBuffer(credentialId);
+      
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[webauthn] credentialId normalizado y validado:', credentialId.substring(0, 40) + '...');
+      }
     } catch (idError) {
       console.error('Error procesando id:', idError);
       challenges.delete(challengeKey);
@@ -246,7 +269,9 @@ router.post('/register/complete', async (req, res) => {
     let rawIdBuffer;
     try {
       if (typeof credential.rawId === 'string') {
-        rawIdBuffer = isoBase64URL.toBuffer(credential.rawId);
+        // Normalizar a base64url primero
+        const normalizedRawId = normalizeBase64Url(credential.rawId);
+        rawIdBuffer = isoBase64URL.toBuffer(normalizedRawId);
       } else if (credential.rawId instanceof Uint8Array || credential.rawId instanceof ArrayBuffer) {
         rawIdBuffer = Buffer.from(credential.rawId);
       } else {
@@ -266,7 +291,9 @@ router.post('/register/complete', async (req, res) => {
     let clientDataJSONBuffer;
     try {
       if (typeof credential.response.clientDataJSON === 'string') {
-        clientDataJSONBuffer = isoBase64URL.toBuffer(credential.response.clientDataJSON);
+        // Normalizar a base64url primero
+        const normalizedClientData = normalizeBase64Url(credential.response.clientDataJSON);
+        clientDataJSONBuffer = isoBase64URL.toBuffer(normalizedClientData);
       } else if (credential.response.clientDataJSON instanceof Uint8Array || credential.response.clientDataJSON instanceof ArrayBuffer) {
         clientDataJSONBuffer = Buffer.from(credential.response.clientDataJSON);
       } else {
@@ -286,7 +313,9 @@ router.post('/register/complete', async (req, res) => {
     let attestationObjectBuffer;
     try {
       if (typeof credential.response.attestationObject === 'string') {
-        attestationObjectBuffer = isoBase64URL.toBuffer(credential.response.attestationObject);
+        // Normalizar a base64url primero
+        const normalizedAttestation = normalizeBase64Url(credential.response.attestationObject);
+        attestationObjectBuffer = isoBase64URL.toBuffer(normalizedAttestation);
       } else if (credential.response.attestationObject instanceof Uint8Array || credential.response.attestationObject instanceof ArrayBuffer) {
         attestationObjectBuffer = Buffer.from(credential.response.attestationObject);
       } else {
