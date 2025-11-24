@@ -14,11 +14,31 @@ const getRPConfig = (req) => {
   const origin = req.get('origin') || '';
   const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
 
-  return {
+  // Tratamos de inferir el hostname desde el origin si no se configura con variables de entorno
+  const inferredHostname = (() => {
+    try {
+      return origin ? new URL(origin).hostname : null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const id = isLocalhost ? 'localhost' : (process.env.RP_ID || inferredHostname || process.env.FRONTEND_URL || 'proyecto-integrador-frontend-nu.vercel.app');
+  const rpOrigin = isLocalhost ? origin : (process.env.RP_ORIGIN || origin || process.env.FRONTEND_URL || 'https://proyecto-integrador-frontend-nu.vercel.app');
+
+  const rp = {
     name: 'Sistema de Gestión Académica',
-    id: isLocalhost ? 'localhost' : process.env.RP_ID || 'proyecto-integrador-frontend-nu.vercel.app',
-    origin: isLocalhost ? origin : process.env.RP_ORIGIN || 'https://proyecto-integrador-frontend-nu.vercel.app'
+    id,
+    origin: rpOrigin
   };
+
+  // Logging informativo para diagnóstico (se recomienda deshabilitar en producción)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[webauthn] getRPConfig -> origin header:', origin, ' | inferredHostname:', inferredHostname);
+    console.log('[webauthn] getRPConfig -> rp config:', rp);
+  }
+
+  return rp;
 };
 
 // Almacenamiento temporal de challenges (en producción usar Redis)
@@ -64,6 +84,9 @@ router.post('/register/begin', async (req, res) => {
     }
 
     const rp = getRPConfig(req);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[webauthn] POST /register/begin | origin:', req.get('origin'), ' rp:', rp, ' normalizedEmail:', normalizedEmail);
+    }
     const displayName = username || normalizedEmail;
 
     let options;
@@ -200,6 +223,25 @@ router.post('/register/complete', async (req, res) => {
 
     const rp = getRPConfig(req);
 
+    // Convertir id a base64url si es necesario
+    let credentialId = credential.id;
+    try {
+      // Si id no es string, convertir a base64url
+      if (typeof credentialId !== 'string') {
+        credentialId = isoBase64URL.fromBuffer(Buffer.from(credentialId));
+      }
+      // Validar que sea base64url válido
+      isoBase64URL.toBuffer(credentialId);
+    } catch (idError) {
+      console.error('Error procesando id:', idError);
+      challenges.delete(challengeKey);
+      return res.status(400).json({
+        success: false,
+        message: 'El ID de credencial no está en el formato correcto',
+        error: process.env.NODE_ENV === 'development' ? idError.message : undefined
+      });
+    }
+
     // Convertir rawId a Buffer
     let rawIdBuffer;
     try {
@@ -264,7 +306,7 @@ router.post('/register/complete', async (req, res) => {
     try {
       verification = await verifyRegistrationResponse({
         response: {
-          id: credential.id,
+          id: credentialId,
           rawId: rawIdBuffer,
           response: {
             clientDataJSON: clientDataJSONBuffer,
@@ -279,6 +321,10 @@ router.post('/register/complete', async (req, res) => {
       });
     } catch (verifyError) {
       console.error('Error al verificar la credencial:', verifyError);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[webauthn] verify error details:', verifyError);
+        console.log('[webauthn] POST /register/complete | origin:', req.get('origin'), ' rp:', rp, ' challenge:', challengeData);
+      }
       challenges.delete(challengeKey);
       
       let errorMessage = 'Error al verificar la huella digital';
