@@ -214,16 +214,77 @@ router.post('/register/complete', async (req, res) => {
 
     const rp = getRPConfig(req);
 
+    // Convertir rawId a Buffer si viene como string (base64url)
+    let rawIdBuffer;
+    try {
+      if (typeof credential.rawId === 'string') {
+        // Convertir de base64url a Buffer
+        rawIdBuffer = isoBase64URL.toBuffer(credential.rawId);
+      } else if (credential.rawId instanceof Buffer) {
+        rawIdBuffer = credential.rawId;
+      } else {
+        throw new Error('rawId inválido: debe ser string o Buffer');
+      }
+    } catch (rawIdError) {
+      console.error('Error procesando rawId:', rawIdError);
+      challenges.delete(challengeKey);
+      return res.status(400).json({
+        success: false,
+        message: 'El ID de credencial no está en el formato correcto',
+        error: process.env.NODE_ENV === 'development' ? rawIdError.message : undefined
+      });
+    }
+
+    // Convertir clientDataJSON a Buffer si viene como string (base64url)
+    let clientDataJSONBuffer;
+    try {
+      if (typeof credential.response.clientDataJSON === 'string') {
+        clientDataJSONBuffer = isoBase64URL.toBuffer(credential.response.clientDataJSON);
+      } else if (credential.response.clientDataJSON instanceof Buffer) {
+        clientDataJSONBuffer = credential.response.clientDataJSON;
+      } else {
+        throw new Error('clientDataJSON inválido');
+      }
+    } catch (clientDataError) {
+      console.error('Error procesando clientDataJSON:', clientDataError);
+      challenges.delete(challengeKey);
+      return res.status(400).json({
+        success: false,
+        message: 'Los datos del cliente no están en el formato correcto',
+        error: process.env.NODE_ENV === 'development' ? clientDataError.message : undefined
+      });
+    }
+
+    // Convertir attestationObject a Buffer si viene como string (base64url)
+    let attestationObjectBuffer;
+    try {
+      if (typeof credential.response.attestationObject === 'string') {
+        attestationObjectBuffer = isoBase64URL.toBuffer(credential.response.attestationObject);
+      } else if (credential.response.attestationObject instanceof Buffer) {
+        attestationObjectBuffer = credential.response.attestationObject;
+      } else {
+        throw new Error('attestationObject inválido');
+      }
+    } catch (attestationError) {
+      console.error('Error procesando attestationObject:', attestationError);
+      challenges.delete(challengeKey);
+      return res.status(400).json({
+        success: false,
+        message: 'El objeto de atestación no está en el formato correcto',
+        error: process.env.NODE_ENV === 'development' ? attestationError.message : undefined
+      });
+    }
+
     // Verificar la respuesta de registro
     let verification;
     try {
       verification = await verifyRegistrationResponse({
         response: {
           id: credential.id,
-          rawId: credential.rawId,
+          rawId: rawIdBuffer,
           response: {
-            clientDataJSON: credential.response.clientDataJSON,
-            attestationObject: credential.response.attestationObject,
+            clientDataJSON: clientDataJSONBuffer,
+            attestationObject: attestationObjectBuffer,
           },
           type: credential.type || 'public-key',
         },
