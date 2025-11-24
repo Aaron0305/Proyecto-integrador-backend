@@ -13,6 +13,7 @@ import carrerasRoutes from './routes/carreras.js';
 import semestresRoutes from './routes/semestres.js';
 import statsRoutes from './routes/statsRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
+import webauthnRoutes from './routes/webauthnRoutes.js';
 import errorHandler from './middleware/errorHandler.js';
 import notificationService from './services/notificationService.js';
 import { startScheduledAssignmentsCron } from './services/scheduledAssignmentsService.js';
@@ -30,8 +31,9 @@ app.use(cors({
         'http://localhost:5173',
         'http://localhost:5174',
         'https://proyecto-integrador-frontend-nu.vercel.app',
-        'https://proyecto-integrador-backend-six.vercel.app'
-    ],
+        'https://proyecto-integrador-backend-six.vercel.app',
+        process.env.CLIENT_URL // Permitir origen definido en variables de entorno
+    ].filter(Boolean), // Filtrar valores nulos o indefinidos
     credentials: true
 }));
 app.use(express.json());
@@ -92,6 +94,7 @@ app.use('/api/carreras', carrerasRoutes);
 app.use('/api/semestres', semestresRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/webauthn', webauthnRoutes);
 
 // Manejador de errores
 app.use(errorHandler);

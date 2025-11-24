@@ -2,23 +2,26 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import WebAuthnCredential from '../models/WebAuthnCredential.js';
 import { uploadProfile } from '../middleware/profileUploadMiddleware.js';
 import emailService from '../services/emailService.js';
 
 const router = express.Router();
 
 // Ruta de registro sin rate limiting
-router.post('/register', uploadProfile, async (req, res) => {  try {
-    const { 
-      email, 
-      password, 
-      numeroControl, 
-      nombre, 
-      apellidoPaterno, 
-      apellidoMaterno, 
+router.post('/register', uploadProfile, async (req, res) => {
+  try {
+    const {
+      email,
+      password,
+      numeroControl,
+      nombre,
+      apellidoPaterno,
+      apellidoMaterno,
       carrera,
       role, // Agregamos el role a los campos que extraemos
-      semestre 
+      semestre,
+      webauthnCredentialId // ID de la credencial WebAuthn registrada previamente
     } = req.body;
 
     // Guardar la URL de Cloudinary de la foto si se subió una
@@ -31,8 +34,8 @@ router.post('/register', uploadProfile, async (req, res) => {  try {
     if (userExists) {
       return res.status(400).json({
         success: false,
-        message: userExists.email === email 
-          ? 'Este correo electrónico ya está registrado' 
+        message: userExists.email === email
+          ? 'Este correo electrónico ya está registrado'
           : 'Este número de control ya está registrado'
       });
     }
@@ -46,6 +49,31 @@ router.post('/register', uploadProfile, async (req, res) => {  try {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Verificar si existe una credencial WebAuthn para este email
+    let webauthnCredential = null;
+    if (webauthnCredentialId) {
+      webauthnCredential = await WebAuthnCredential.findById(webauthnCredentialId);
+      if (!webauthnCredential) {
+        return res.status(400).json({
+          success: false,
+          message: 'La credencial de huella digital no fue encontrada. Por favor, registra tu huella nuevamente.'
+        });
+      }
+      // Verificar que la credencial pertenezca al email del usuario
+      if (webauthnCredential.email.toLowerCase() !== email.toLowerCase()) {
+        return res.status(400).json({
+          success: false,
+          message: 'La credencial de huella digital no corresponde a este correo electrónico.'
+        });
+      }
+    } else {
+      // Si no se proporciona webauthnCredentialId, verificar si hay una credencial por email
+      webauthnCredential = await WebAuthnCredential.findOne({
+        email: email.toLowerCase()
+      });
+    }
+
     const user = new User({
       email,
       password: hashedPassword,
@@ -56,10 +84,17 @@ router.post('/register', uploadProfile, async (req, res) => {  try {
       carrera,
       semestre,
       fotoPerfil,
-      role: role || 'docente' // Asegurarnos de incluir el role
+      role: role || 'docente', // Asegurarnos de incluir el role
+      webauthnCredentialId: webauthnCredential ? webauthnCredential._id : null
     });
 
     const savedUser = await user.save();
+
+    // Si hay una credencial WebAuthn sin usuario asociado, actualizarla
+    if (webauthnCredential && !webauthnCredential.user) {
+      webauthnCredential.user = savedUser._id;
+      await webauthnCredential.save();
+    }
     const token = jwt.sign(
       { id: savedUser._id },
       process.env.JWT_SECRET || 'tu_secreto_muy_seguro_123',
@@ -108,9 +143,8 @@ router.post('/login', async (req, res) => {
     if (!recaptchaResult.success) {
       // Incluir detalle para depuración local (no exponer en producción)
       const detail = recaptchaResult.error
-        ? `${recaptchaResult.error}${
-            typeof recaptchaResult.score === 'number' ? ` (score: ${recaptchaResult.score})` : ''
-          }`
+        ? `${recaptchaResult.error}${typeof recaptchaResult.score === 'number' ? ` (score: ${recaptchaResult.score})` : ''
+        }`
         : 'Motivo desconocido';
       return res.status(400).json({
         success: false,
@@ -253,9 +287,9 @@ router.post('/forgot-password', async (req, res) => {
     // Enviar email de recuperación
     try {
       await emailService.sendPasswordResetEmail(email, resetToken, user);
-      
+
       console.log(`✅ Solicitud de recuperación procesada para: ${email}`);
-      
+
       res.json({
         success: true,
         message: 'Si existe una cuenta con ese correo electrónico, recibirás un enlace de recuperación en breve.',
@@ -270,12 +304,12 @@ router.post('/forgot-password', async (req, res) => {
 
     } catch (emailError) {
       console.error('❌ Error enviando email de recuperación:', emailError);
-      
+
       // Limpiar token si el email falla
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
-      
+
       res.status(500).json({
         success: false,
         message: 'Error al enviar el correo de recuperación. Inténtalo de nuevo más tarde.'
@@ -312,7 +346,7 @@ router.post('/reset-password', async (req, res) => {
 
     // Verificar el token
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'tu_jwt_secret');
-    
+
     if (decoded.type !== 'password-reset') {
       return res.status(400).json({
         success: false,
@@ -373,6 +407,28 @@ router.post('/reset-password', async (req, res) => {
       success: false,
       message: 'Error interno del servidor'
     });
+  }
+});
+
+// Ruta para verificar disponibilidad de email o número de control
+router.post('/check-availability', async (req, res) => {
+  try {
+    const { email, numeroControl } = req.body;
+
+    if (email) {
+      const user = await User.findOne({ email });
+      return res.json({ success: true, exists: !!user });
+    }
+
+    if (numeroControl) {
+      const user = await User.findOne({ numeroControl });
+      return res.json({ success: true, exists: !!user });
+    }
+
+    return res.status(400).json({ success: false, message: 'Datos requeridos faltantes' });
+  } catch (error) {
+    console.error('Error en check-availability:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

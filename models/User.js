@@ -60,6 +60,11 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: {
     type: Date,
     default: null
+  },
+  webauthnCredentialId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'WebAuthnCredential',
+    default: null
   }
 });
 
